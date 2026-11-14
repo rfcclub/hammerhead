@@ -1,187 +1,173 @@
 # hammerhead-debug
 
-> **Local candidate.** This Orca handoff release is installed from a reviewed tarball; it has no npm registry publication.
+> **Beta.** `npm install @gotako/hammerhead-debug`. Versions are prereleases (`0.5.0-beta.N`); the CLI, the session format and the library can change between betas.
 
-Hypothesis-gated debugging. No fix is ever written until a hypothesis is
-**CONFIRMED** by a real, captured observation — a real debugger stop, a
-real log line, a real test result. Never a guess dressed up as
-confidence.
+A debugging CLI that keeps a written record of each debugging attempt and refuses to record a fix until one hypothesis has been marked CONFIRMED against a captured observation.
 
-Standalone package — no dependency on Orca or any other tool in this
-family. Usable directly by an agent (as a Claude Code / Codex skill), by
-a human at the CLI, or as a library.
+You open a session for one symptom. You state a hypothesis and what you predict you will see if it is right. You collect one observation (a real debugger stop, a log line, a test output). You record a verdict. Only after a CONFIRMED verdict will `hammerhead-debug fix` record a fix. After four REFUTED hypotheses (the default) it refuses to open another one and tells you to escalate.
 
-## The Loop
+It ships as three things in one package:
 
-```
-symptom → [hypothesis → predict → probe → observe → verdict]* → fix
-```
+- a CLI, `hammerhead-debug`;
+- a TypeScript/JavaScript library with the same operations (ESM only);
+- a skill file (`skill/SKILL.md`) that teaches Claude Code or Codex to use the CLI, installed with `hammerhead-debug install`.
 
-- **hypothesis**: a specific, falsifiable claim about the cause.
-- **predict**: what you'd expect to observe if the hypothesis is right.
-- **probe**: gather real evidence — either a real debugger operation
-  (DAP: set a breakpoint, hit it, evaluate an expression in that live
-  stack frame) or a captured log/instrumentation/test result. A probe
-  records evidence from an allowed probe kind. Operator-supplied logs,
-  debugger expressions and repro commands remain trusted inputs; this is
-  not a source sandbox.
-- **verdict**: CONFIRMED (prediction held) or REFUTED (it didn't) — and
-  a verdict without nonblank captured text and a matching SHA256 is rejected outright,
-  not just discouraged.
-- **fix**: only writable once a cycle is CONFIRMED. Exhausting
-  `max_refuted_cycles` (default 4) without a confirmed hypothesis means
-  opening another cycle is mechanically blocked; stop and hand off to a stronger
-  model or a human.
+## What it is not
+
+- It does not stop you or an agent from editing source files. The gate only controls what the CLI will *record*: you cannot record a fix without a confirmed cycle, but nothing prevents editing code first. See [guard rules](docs/guard-rules.md).
+- It does not decide whether a hypothesis is true. You (or your agent) choose CONFIRMED or REFUTED. The tool checks that an observation exists and has not been edited, not that it supports the prediction.
+- It does not authenticate evidence. The SHA-256 stored with an observation detects later edits to the session file. It does not prove the text came from a real log or debugger. See [known limitations](docs/known-limitations.md).
+- It is not a debugger. Its `dap` probe calls the separate [`dap` CLI](https://github.com/AlmogBaku/debug-skill), which you install yourself.
+- It does not need GitHub, an account, a network connection, or an AI agent. Sessions are plain JSON files in a directory.
 
 ## Install
 
-```bash
-npm install    # or pnpm install
-npx tsc        # outputs dist/
-```
-
-### Make it a real skill (recommended)
+Requires Node.js 22 or newer.
 
 ```bash
-node dist/cli.js install
-# copies skill/SKILL.md to ~/.claude/skills/hammerhead-debug/ and
-# ~/.codex/skills/hammerhead-debug/ — the workflow becomes something an
-# agent picks up automatically, not something you paste every time.
-#
-# --agent claude-code|codex   install to just one
-# --project                    install into ./.claude/skills/, ./.codex/skills/
-#                               (cwd-relative) instead of your home directory
+npm install --save-dev @gotako/hammerhead-debug   # in a project
+npx hammerhead-debug --help
+
+# or install the command globally
+npm install -g @gotako/hammerhead-debug
+hammerhead-debug --help
 ```
 
-## CLI
-
-```
-hammerhead-debug install [--agent claude-code|codex] [--project]
-hammerhead-debug open --symptom "<desc>" --repro "<cmd>" [--plan <p> --task <t>] [--dir <dir>]
-hammerhead-debug hypothesis <session-id> "<hypothesis>" --predict "<prediction>" [--dir <dir>]
-hammerhead-debug probe <session-id> --kind dap --break <path:line> --evaluate "<expr>" [--script <path>] [--dap-bin <path>] [--dir <dir>]
-hammerhead-debug probe <session-id> --kind instrumentation|isolated_test|trace_read --observation "<captured evidence>" [--dir <dir>]
-hammerhead-debug verdict <session-id> --result CONFIRMED|REFUTED [--reason "..."] [--dir <dir>]
-hammerhead-debug fix <session-id> --diff-sha256 <hash> [--dir <dir>]
-hammerhead-debug status <session-id> [--dir <dir>]
-hammerhead-debug check <session-id> [--dir <dir>]
-hammerhead-debug list [--dir <dir>]
-```
-
-`--dir` defaults to `.hammerhead-debug` (relative to cwd) and is where
-session JSON files are written/read. Point it at an Orca changeDir
-(`orca/changes/<name>` or `openspec/changes/<name>`) to tie a debug
-session's evidence to the plan task it serves.
-
-### Example
+Optional, for Claude Code and Codex users: copy the skill so the agent picks the workflow up on its own.
 
 ```bash
-hammerhead-debug open --symptom "checkout total is wrong" --repro "node tests/checkout.test.js"
-# → {"session_id": "dbg-a1b2c3d4"}
-
-hammerhead-debug hypothesis dbg-a1b2c3d4 "discount applied twice" --predict "total should be 100, not 90"
-
-# Real debugger evidence:
-hammerhead-debug probe dbg-a1b2c3d4 --kind dap --script checkout.js --break checkout.js:42 --evaluate "discount"
-# or, log evidence:
-hammerhead-debug probe dbg-a1b2c3d4 --kind instrumentation --observation "log line 42: discount applied twice, total=90"
-
-hammerhead-debug verdict dbg-a1b2c3d4 --result CONFIRMED --reason "evidence matches the prediction exactly"
-
-# Now, and only now, edit the actual code — then:
-hammerhead-debug fix dbg-a1b2c3d4 --diff-sha256 "$(git diff | shasum -a 256 | cut -d' ' -f1)"
-
-hammerhead-debug check dbg-a1b2c3d4   # re-runs --repro, confirms the symptom is actually gone
+npx hammerhead-debug install            # ~/.claude/skills/hammerhead-debug and ~/.codex/skills/hammerhead-debug
+npx hammerhead-debug install --project  # ./.claude/skills and ./.codex/skills instead
 ```
 
-## DAP probing
+## Quick start (about 5 minutes, no debugger needed)
 
-The `dap` probe kind drives a **real debugger** via
-[`debug-skill`](https://github.com/AlmogBaku/debug-skill)'s `dap` CLI —
-a daemon-backed wrapper around the Debug Adapter Protocol, auto-detecting
-the backend from the file extension:
+This was run against a packed copy of this version in an empty directory. You need Node.js and git.
 
-| Extension | Backend |
+Create a project with a small bug. `total(100, 10)` should return 90 but subtracts the discount twice.
+
+```bash
+mkdir demo && cd demo && git init -q && npm init -y >/dev/null
+npm install --save-dev @gotako/hammerhead-debug
+printf 'node_modules/\n.hammerhead-debug/\n' > .gitignore
+
+cat > cart.mjs <<'EOF'
+export function total(price, discount) {
+  const applied = discount * 2 // bug: discount is doubled
+  return price - applied
+}
+EOF
+
+cat > repro.mjs <<'EOF'
+import { total } from './cart.mjs'
+const got = total(100, 10)
+if (got !== 90) {
+  console.error('expected total 90, got ' + got)
+  process.exit(1)
+}
+console.log('ok')
+EOF
+
+git add -A && git commit -qm init
+node repro.mjs        # prints "expected total 90, got 80", exit 1
+```
+
+1. Open a session. It prints a session id; yours will differ from `dbg-2096e0ba`.
+
+   ```bash
+   npx hammerhead-debug open --symptom "total is 80, expected 90" --repro "node repro.mjs"
+   # { "session_id": "dbg-2096e0ba", "dir": ".hammerhead-debug" }
+   ```
+
+2. State a hypothesis and a prediction.
+
+   ```bash
+   npx hammerhead-debug hypothesis dbg-2096e0ba "total() subtracts the discount twice" \
+     --predict "total(100, 10) returns 80, so 20 is being subtracted"
+   # { "cycle_id": "c-1" }
+   ```
+
+3. Try to record a fix now. It is refused.
+
+   ```bash
+   npx hammerhead-debug fix dbg-2096e0ba --diff-sha256 abc
+   # Error: no confirmed hypothesis — collect evidence before fixing     (exit 1)
+   ```
+
+4. Collect an observation from the real code and record it. The text after `--observation` is stored as given, so capture it from a command instead of typing it.
+
+   ```bash
+   npx hammerhead-debug probe dbg-2096e0ba --kind isolated_test --action "call total(100, 10) directly" \
+     --observation "$(node -e "import('./cart.mjs').then(m => console.log('total(100, 10) = ' + m.total(100, 10)))" 2>&1)"
+   # { "captured": "total(100, 10) = 80", "observation_sha256": "a10f2aa7..." }
+   ```
+
+5. Record the verdict.
+
+   ```bash
+   npx hammerhead-debug verdict dbg-2096e0ba --result CONFIRMED \
+     --reason "total(100, 10) returned 80, matching the prediction"
+   # { "cycle_id": "c-1", "status": "confirmed", "escalation": { "escalate": false } }
+   ```
+
+6. Fix the code (change `discount * 2` to `discount` in `cart.mjs`), then record the fix with a hash of the diff.
+
+   ```bash
+   npx hammerhead-debug fix dbg-2096e0ba --diff-sha256 "$(git diff | shasum -a 256 | cut -d' ' -f1)"
+   # { "authorized": true, "fix": { "authorized_by_cycle": "c-1", "applied": true, "diff_sha256": "..." } }
+   ```
+
+   On Linux you can use `sha256sum` instead of `shasum -a 256`. The CLI stores whatever string you give it; it does not check that it matches a diff.
+
+7. Check that the symptom is gone. This re-runs the `--repro` command.
+
+   ```bash
+   npx hammerhead-debug check dbg-2096e0ba
+   # { "resolved": true }
+   ```
+
+The whole record is in `.hammerhead-debug/dbg-2096e0ba.json`. Print it with `npx hammerhead-debug status dbg-2096e0ba`.
+
+To get a real debugger stop instead of a recorded log line, see [DAP probes](docs/dap-probes.md).
+
+## Documentation
+
+| Page | Contents |
 |---|---|
-| `.py` | debugpy (Python) |
-| `.go` | dlv (Go) |
-| `.js` / `.ts` | js-debug (Node.js/TypeScript) |
-| `.rs` / `.c` / `.cpp` | lldb-dap (Rust/C/C++) |
+| [Concepts](docs/concepts.md) | The loop, the vocabulary, the two ways to use the tool |
+| [CLI reference](docs/cli.md) | Every command, flag, output and exit code |
+| [Session file format](docs/session-format.md) | The JSON schema, field by field |
+| [Guard rules](docs/guard-rules.md) | What each check blocks, and what it does not |
+| [DAP probes](docs/dap-probes.md) | Requirements, supported backends, what gets recorded |
+| [Library reference](docs/library.md) | The exported functions and types |
+| [Agent skill](docs/agent-skill.md) | Installing and using the skill in Claude Code and Codex |
+| [Orca handoff](docs/orca-handoff.md) | How an Orca loop leads to a session and back |
+| [Tool family](docs/family.md) | Orca, seal-gate, pilotfish and how they relate |
+| [Troubleshooting](docs/troubleshooting.md) | Error messages and fixes |
+| [Known limitations](docs/known-limitations.md) | Open issues and design limits |
 
-Requires building `debug-skill`'s `dap` binary separately (`go build -o
-dap ./cmd/dap` in that repo — needs Go), plus whichever debugger backend
-your target language needs (e.g. `pip install debugpy` for Python). Pass
-`--dap-bin <path>` if `dap` isn't on `PATH`.
+## Known limitations
 
-If DAP setup is a blocker, `instrumentation`/`isolated_test`/
-`trace_read` probes need no external tooling at all — capture real
-evidence yourself (a log line, a standalone test, an existing trace) and
-record it with `--observation`.
+- [Issue #7](https://github.com/rfcclub/hammerhead-debug/issues/7): the `dap` probe can record a failed evaluation at a relocated breakpoint as an observation, and `verdict --result CONFIRMED` is accepted on it. In testing, a program that exits before reaching the breakpoint is also recorded as an observation. Check the `captured` text yourself before you confirm. Details in [known limitations](docs/known-limitations.md).
+- CONFIRMED is a judgment made by the operator. The tool does not compare the observation with the prediction.
+- The observation hash detects edits to a session file; it does not authenticate the evidence.
+- The CLI cannot stop file edits made before a CONFIRMED verdict.
 
-## As a library
-
-```ts
-import {
-  createDebugLoopJson, readDebugLoopJson, writeDebugLoopJson,
-  DebugGuard, checkSymptomResolved,
-  runDapProbe,
-  installSkill, defaultSkillSourcePath,
-  sha256File, sha256String,
-} from '@gotako/hammerhead-debug'
-```
-
-`DebugGuard` exposes the mechanical checks the CLI enforces
-(`canOpenCycle`, `probeIsLegal`, `verdictIsHonest`, `canWriteFix`,
-`escalateIfNeeded`) if you're building your own tool on top rather than
-using the CLI directly.
-
-## Relationship to Orca
-
-Originally built inside Orca's `src/harness/`, extracted to its own
-package (matching how `seal-gate` already stood apart) once it became a
-general-purpose debugging tool, not something specific to Orca's own
-lifecycle. Orca consumes this package API
-only to *read* a debug session's verdict when a plan task's completion
-references one (`orca plan-json complete --debug-session ...
---debug-cycle ...`) — this package has zero dependency in the other
-direction and works standalone. See `Orca docs/loop-evidence.md` for the
-full pipeline (Orca + seal-gate + hammerhead-debug + pilotfish
-together).
-
-## Test
+## Develop
 
 ```bash
+git clone https://github.com/rfcclub/hammerhead-debug
+cd hammerhead-debug
 npm ci
-npm run build
-npx vitest run
+npm run build    # tsc, writes dist/
+npm test         # vitest; the CLI tests run dist/, so build first
 ```
 
-## Evidence and migration limits
+## Links
 
-Hash integrity detects edited captured text; it does not authenticate supplied
-logs or prove a semantic hypothesis. Instrumentation/isolated_test/trace_read
-record exact evidence the operator collected; CONFIRMED remains an operator
-verdict. Fix authorization rechecks the authorizing observation and requires
-confirmed status, CONFIRMED result and a held prediction. Old sessions with
-placeholder hashes, empty capture or contradictory confirmation must recapture
-evidence. Opening another hypothesis after an exhausted/invalid budget is
-blocked; a separately authorized investigation can use a new session.
-
-The Orca bounded loop stops with a handoff; it does not automatically run
-Hammerhead. Follow the handoff command, gather/record evidence, fix only after
-confirmation, and rerun the repro plus Orca's executable test evidence/gates
-before completing the task. Hammerhead check only executes the supplied repro
-command and reports its exit result, which cannot independently certify GREEN.
-No GitHub account is required for these local commands.
-
-## Local migration rollback plan
-
-Preserve the complete existing installed Hammerhead package and launcher before
-replacement. Restore their exact predecessor bytes if the installed CLI guard
-and repro tests fail. Keep package/command receipts and any previous skill bytes;
-do not replace an agent's installed skill without a recorded predecessor.
-The release does not alter user source checkouts or publish to npm.
+- Source and issues: https://github.com/rfcclub/hammerhead-debug
+- Orca (the harness this tool plugs into): https://www.npmjs.com/package/@gotako/orca
 
 ## License
 
-ISC
+MIT. See [LICENSE](LICENSE).
