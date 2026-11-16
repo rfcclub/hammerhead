@@ -44,7 +44,7 @@ The observation text is built by hammerhead-debug from `dap`'s answer:
 | Program exited without stopping | `terminated(exit <code>): program exited before hitting a breakpoint` | 0 |
 | `dap` reported an error, was not found, timed out, or exited nonzero | nothing recorded | 1, message `dap debug failed: ...` |
 
-`<file>` and `<line>` are where `dap` says it stopped, which may differ from the breakpoint you asked for (in the first example below, a breakpoint requested on a line that does not exist stopped at line 2). The first three rows are all treated as evidence. **A verdict of CONFIRMED is accepted on any of them.** Read the `captured` text before you confirm; this is [issue #7](https://github.com/rfcclub/hammerhead-debug/issues/7). Examples from a real run with `dap` v0.4.2 and debugpy:
+`<file>` and `<line>` are where `dap` says it stopped, which may differ from the breakpoint you asked for (in the first example below, a breakpoint requested on a line that does not exist stopped at line 2). The first three rows are all treated as evidence. **A verdict of CONFIRMED is accepted on any of them.** Read the `captured` text before you confirm; this is [issue #7](https://github.com/rfcclub/hammerhead/issues/2). Examples from a real run with `dap` v0.4.2 and debugpy:
 
 ```
 stopped(breakpoint) at /path/reloc.py:2: s = 80          (asked for line 99; stopped at line 2)

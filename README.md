@@ -148,7 +148,7 @@ To get a real debugger stop instead of a recorded log line, see [DAP probes](doc
 
 ## Known limitations
 
-- [Issue #7](https://github.com/rfcclub/hammerhead-debug/issues/7): the `dap` probe can record a failed evaluation at a relocated breakpoint as an observation, and `verdict --result CONFIRMED` is accepted on it. In testing, a program that exits before reaching the breakpoint is also recorded as an observation. Check the `captured` text yourself before you confirm. Details in [known limitations](docs/known-limitations.md).
+- [Issue #2](https://github.com/rfcclub/hammerhead/issues/2): the `dap` probe can record a failed evaluation at a relocated breakpoint as an observation, and `verdict --result CONFIRMED` is accepted on it. In testing, a program that exits before reaching the breakpoint is also recorded as an observation. Check the `captured` text yourself before you confirm. Details in [known limitations](docs/known-limitations.md).
 - CONFIRMED is a judgment made by the operator. The tool does not compare the observation with the prediction.
 - The observation hash detects edits to a session file; it does not authenticate the evidence.
 - The CLI cannot stop file edits made before a CONFIRMED verdict.
@@ -156,7 +156,7 @@ To get a real debugger stop instead of a recorded log line, see [DAP probes](doc
 ## Develop
 
 ```bash
-git clone https://github.com/rfcclub/hammerhead-debug
+git clone https://github.com/rfcclub/hammerhead
 cd hammerhead-debug
 npm ci
 npm run build    # tsc, writes dist/
@@ -165,7 +165,7 @@ npm test         # vitest; the CLI tests run dist/, so build first
 
 ## Links
 
-- Source and issues: https://github.com/rfcclub/hammerhead-debug
+- Source and issues: https://github.com/rfcclub/hammerhead
 - Orca (the harness this tool plugs into): https://www.npmjs.com/package/@gotako/orca
 
 ## License

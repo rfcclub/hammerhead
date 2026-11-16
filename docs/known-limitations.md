@@ -6,7 +6,7 @@ These are stated plainly so you can decide how much to trust a session. They des
 
 ### Issue #7: the `dap` probe can record a failed or misplaced stop as evidence
 
-https://github.com/rfcclub/hammerhead-debug/issues/7
+https://github.com/rfcclub/hammerhead/issues/2
 
 `probe --kind dap` can record an observation whose text has no observed value, and `verdict --result CONFIRMED` is then accepted on it, after which `fix` is authorized. The issue was reported for a breakpoint that the debugger moved to another line, with the evaluation failing there.
 

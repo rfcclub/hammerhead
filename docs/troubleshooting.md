@@ -46,7 +46,7 @@ Errors print to stderr as `Error: <message>` and the exit code is 1. Messages be
 
 **The probe takes a long time and then fails.** Each `dap` call has a 60 second timeout. A program that waits for input, or a slow start, can hit it.
 
-**The observation says `terminated(exit 0): program exited before hitting a breakpoint`.** The breakpoint's line was never reached (wrong line, wrong branch, wrong script). The probe still recorded this as evidence and exited 0. Do not confirm on it. See [issue #7](https://github.com/rfcclub/hammerhead-debug/issues/7).
+**The observation says `terminated(exit 0): program exited before hitting a breakpoint`.** The breakpoint's line was never reached (wrong line, wrong branch, wrong script). The probe still recorded this as evidence and exited 0. Do not confirm on it. See [issue #7](https://github.com/rfcclub/hammerhead/issues/2).
 
 **The observation says `... — eval "<expr>" failed` or stopped at a different line than `--break`.** Same issue. The probe recorded it anyway; do not confirm on it.
 
@@ -72,4 +72,4 @@ The repro command did not exit 0. `check` runs it with `sh -c` in the current di
 
 ## Still stuck
 
-Open an issue at https://github.com/rfcclub/hammerhead-debug/issues with the command you ran, the full error line, your Node.js version, and the session file (remove anything private).
+Open an issue at https://github.com/rfcclub/hammerhead/issues with the command you ran, the full error line, your Node.js version, and the session file (remove anything private).

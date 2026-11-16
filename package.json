@@ -5,11 +5,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rfcclub/hammerhead-debug.git"
+    "url": "git+https://github.com/rfcclub/hammerhead.git"
   },
-  "homepage": "https://github.com/rfcclub/hammerhead-debug#readme",
+  "homepage": "https://github.com/rfcclub/hammerhead#readme",
   "bugs": {
-    "url": "https://github.com/rfcclub/hammerhead-debug/issues"
+    "url": "https://github.com/rfcclub/hammerhead/issues"
   },
   "engines": {
     "node": ">=22"
