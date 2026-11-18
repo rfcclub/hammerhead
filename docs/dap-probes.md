@@ -39,17 +39,18 @@ The observation text is built by hammerhead-debug from `dap`'s answer:
 
 | Situation | Recorded `captured` text | Exit code of `probe` |
 |---|---|---|
-| Stopped, evaluation succeeded | `stopped(<reason>) at <file>:<line>: <expression> = <value>` | 0 |
-| Stopped, evaluation failed | `stopped(<reason>) at <file>:<line> — eval "<expression>" failed` | 0 |
-| Program exited without stopping | `terminated(exit <code>): program exited before hitting a breakpoint` | 0 |
+| Stopped at a requested breakpoint, evaluation returned a value | `stopped(<reason>) at <file>:<line>: <expression> = <value>` | 0 |
+| Stopped, evaluation failed or returned no value | nothing recorded | 1, message `dap probe recorded no observation: ... eval "<expression>" failed` |
+| Stopped at a file or line that is not any requested breakpoint (for example the debugger moved a breakpoint requested on a line that does not exist) | nothing recorded | 1, message `dap probe recorded no observation: stopped at <file>:<line>, which differs from the requested breakpoint(s) ...` |
+| Program exited without stopping | nothing recorded | 1, message `dap probe recorded no observation: program terminated ... before hitting a breakpoint` |
 | `dap` reported an error, was not found, timed out, or exited nonzero | nothing recorded | 1, message `dap debug failed: ...` |
 
-`<file>` and `<line>` are where `dap` says it stopped, which may differ from the breakpoint you asked for (in the first example below, a breakpoint requested on a line that does not exist stopped at line 2). The first three rows are all treated as evidence. **A verdict of CONFIRMED is accepted on any of them.** Read the `captured` text before you confirm; this is [issue #7](https://github.com/rfcclub/hammerhead/issues/2). Examples from a real run with `dap` v0.4.2 and debugpy:
+Only the first row records an observation, so only it can lead to a CONFIRMED verdict; `verdict` is refused when the probe failed because no observation exists. The stop location is compared with each requested `--break` by line number and by file (an absolute path reported by `dap` matches a relative `--break` path when it ends with the same whole path segments). A stop requested with `stopOnEntry` (reason `entry`) is accepted as requested. The value is still only what the debugger evaluated: whether it supports your prediction is your judgment (see [known limitations](known-limitations.md)).
+
+Example of a successful stop from a real run with `dap` v0.4.2 and debugpy:
 
 ```
-stopped(breakpoint) at /path/reloc.py:2: s = 80          (asked for line 99; stopped at line 2)
-stopped(breakpoint) at /path/reloc.py:1 — eval "nosuchvar" failed
-terminated(exit 0): program exited before hitting a breakpoint
+stopped(breakpoint) at /path/reloc.py:2: s = 80
 ```
 
 ## CLI versus library

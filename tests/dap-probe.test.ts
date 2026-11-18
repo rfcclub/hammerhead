@@ -47,14 +47,11 @@ describe('runDapProbe', () => {
     expect(calls[0]).toContain('app.py:2:x > 5')
   })
 
-  it('program exits before hitting a breakpoint → captures termination, still calls stop', async () => {
+  it('program exits before hitting a breakpoint → fails (no observation), still calls stop', async () => {
     const { runner, calls } = scriptedRunner([TERMINATED_TEXT, 'OK\n'])
-    const observation = await runDapProbe(
-      { script: 'app.py', breakpoints: [{ path: 'app.py', line: 999 }], evaluate: 'x' },
-      { runner },
-    )
-    expect(observation.captured).toContain('terminated')
-    expect(observation.captured).toContain('exit 0')
+    await expect(
+      runDapProbe({ script: 'app.py', breakpoints: [{ path: 'app.py', line: 999 }], evaluate: 'x' }, { runner }),
+    ).rejects.toThrow(/terminated.*before hitting a breakpoint/)
     expect(calls.at(-1)).toEqual(['stop', '--json'])
   })
 
@@ -66,13 +63,90 @@ describe('runDapProbe', () => {
     expect(calls.at(-1)).toEqual(['stop', '--json'])
   })
 
-  it('eval failing after a successful stop still returns an observation, not a throw', async () => {
-    const { runner } = scriptedRunner([STOPPED_JSON, ERROR_TEXT, 'OK\n'])
+  it('eval failing after a successful stop fails the probe (no observation), still calls stop', async () => {
+    const { runner, calls } = scriptedRunner([STOPPED_JSON, ERROR_TEXT, 'OK\n'])
+    await expect(
+      runDapProbe({ script: 'app.py', breakpoints: [{ path: 'app.py', line: 2 }], evaluate: 'bogus_expr' }, { runner }),
+    ).rejects.toThrow('eval "bogus_expr" failed')
+    expect(calls.at(-1)).toEqual(['stop', '--json'])
+  })
+
+  it('stop at a different line than every requested breakpoint fails the probe, even when eval succeeds', async () => {
+    const { runner, calls } = scriptedRunner([STOPPED_JSON, EVAL_JSON, 'OK\n'])
+    await expect(
+      runDapProbe({ script: 'app.py', breakpoints: [{ path: 'app.py', line: 99 }], evaluate: 'a + b' }, { runner }),
+    ).rejects.toThrow(/app\.py:2.*(not|differs)/)
+    expect(calls.at(-1)).toEqual(['stop', '--json'])
+  })
+
+  it('stop in a different file than every requested breakpoint fails the probe', async () => {
+    const { runner } = scriptedRunner([STOPPED_JSON, EVAL_JSON, 'OK\n'])
+    await expect(
+      runDapProbe({ script: 'app.py', breakpoints: [{ path: 'other.py', line: 2 }], evaluate: 'a + b' }, { runner }),
+    ).rejects.toThrow(/differs/)
+  })
+
+  it('relocated breakpoint with a failed eval (the reported case) fails the probe', async () => {
+    const relocated = JSON.stringify({
+      reason: 'breakpoint',
+      location: { file: '/work/proj/checkout.py', line: 8, function: 'f' },
+    })
+    const { runner } = scriptedRunner([relocated, ERROR_TEXT, 'OK\n'])
+    await expect(
+      runDapProbe({ script: 'checkout.py', breakpoints: [{ path: 'checkout.py', line: 99 }], evaluate: 's' }, { runner }),
+    ).rejects.toThrow()
+  })
+
+  it('accepts a stop reported with an absolute path when the breakpoint was given relative', async () => {
+    const abs = JSON.stringify({ reason: 'breakpoint', location: { file: '/work/proj/src/app.py', line: 2, function: 'add' } })
+    const { runner } = scriptedRunner([abs, EVAL_JSON, 'OK\n'])
     const observation = await runDapProbe(
-      { script: 'app.py', breakpoints: [{ path: 'app.py', line: 2 }], evaluate: 'bogus_expr' },
+      { script: 'src/app.py', breakpoints: [{ path: 'src/app.py', line: 2 }], evaluate: 'a + b' },
       { runner },
     )
-    expect(observation.captured).toContain('eval "bogus_expr" failed')
+    expect(observation.captured).toBe('stopped(breakpoint) at /work/proj/src/app.py:2: a + b = 5')
+  })
+
+  it('a path suffix that is not a whole path segment does not match', async () => {
+    const abs = JSON.stringify({ reason: 'breakpoint', location: { file: '/work/proj/notapp.py', line: 2, function: 'add' } })
+    const { runner } = scriptedRunner([abs, EVAL_JSON, 'OK\n'])
+    await expect(
+      runDapProbe({ script: 'app.py', breakpoints: [{ path: 'app.py', line: 2 }], evaluate: 'a + b' }, { runner }),
+    ).rejects.toThrow(/differs/)
+  })
+
+  it('with several breakpoints, a stop at any one of them is accepted', async () => {
+    const { runner } = scriptedRunner([STOPPED_JSON, EVAL_JSON, 'OK\n'])
+    const observation = await runDapProbe(
+      { script: 'app.py', breakpoints: [{ path: 'app.py', line: 7 }, { path: 'app.py', line: 2 }], evaluate: 'a + b' },
+      { runner },
+    )
+    expect(observation.captured).toContain('a + b = 5')
+  })
+
+  it('an entry stop that was explicitly requested via stopOnEntry is accepted', async () => {
+    const entry = JSON.stringify({ reason: 'entry', location: { file: 'app.py', line: 1, function: '<module>' } })
+    const { runner } = scriptedRunner([entry, EVAL_JSON, 'OK\n'])
+    const observation = await runDapProbe(
+      { script: 'app.py', stopOnEntry: true, breakpoints: [{ path: 'app.py', line: 50 }], evaluate: 'a + b' },
+      { runner },
+    )
+    expect(observation.captured).toBe('stopped(entry) at app.py:1: a + b = 5')
+  })
+
+  it('an entry-looking stop is NOT accepted when stopOnEntry was not requested', async () => {
+    const entry = JSON.stringify({ reason: 'entry', location: { file: 'app.py', line: 1, function: '<module>' } })
+    const { runner } = scriptedRunner([entry, EVAL_JSON, 'OK\n'])
+    await expect(
+      runDapProbe({ script: 'app.py', breakpoints: [{ path: 'app.py', line: 50 }], evaluate: 'a + b' }, { runner }),
+    ).rejects.toThrow(/differs/)
+  })
+
+  it('eval succeeding with no value fails closed instead of recording "<no value>"', async () => {
+    const { runner } = scriptedRunner([STOPPED_JSON, JSON.stringify({}), 'OK\n'])
+    await expect(
+      runDapProbe({ script: 'app.py', breakpoints: [{ path: 'app.py', line: 2 }], evaluate: 'a + b' }, { runner }),
+    ).rejects.toThrow(/failed/)
   })
 
   it('stop failing (daemon already exited) is swallowed, does not mask the real result', async () => {
@@ -119,10 +193,13 @@ describe('runDapProbe exit status', () => {
     }
   }
 
-  it('eval-nonzero: does not record an eval value from a nonzero exit', async () => {
-    const observation = await runDapProbe(spec, { runner: exitRunner([[STOPPED_JSON, 0], [EVAL_JSON, 42], ['OK\n', 0]]) })
-    expect(observation.captured).not.toContain('= 5')
-    expect(observation.captured).toContain('failed')
+  it('eval-nonzero: a nonzero eval exit fails the probe and records nothing', async () => {
+    const error = await runDapProbe(spec, { runner: exitRunner([[STOPPED_JSON, 0], [EVAL_JSON, 42], ['OK\n', 0]]) }).then(
+      () => null,
+      (e: Error) => e,
+    )
+    expect(error?.message).toContain('failed')
+    expect(error?.message).not.toContain('= 5')
   })
 
   it('debug-nonzero: throws when debug exits nonzero', async () => {

@@ -144,11 +144,11 @@ To get a real debugger stop instead of a recorded log line, see [DAP probes](doc
 | [Orca handoff](docs/orca-handoff.md) | How an Orca loop leads to a session and back |
 | [Tool family](docs/family.md) | Orca, seal-gate, pilotfish and how they relate |
 | [Troubleshooting](docs/troubleshooting.md) | Error messages and fixes |
-| [Known limitations](docs/known-limitations.md) | Open issues and design limits |
+| [Known limitations](docs/known-limitations.md) | Design limits and what the tool does not check |
 
 ## Known limitations
 
-- [Issue #2](https://github.com/rfcclub/hammerhead/issues/2): the `dap` probe can record a failed evaluation at a relocated breakpoint as an observation, and `verdict --result CONFIRMED` is accepted on it. In testing, a program that exits before reaching the breakpoint is also recorded as an observation. Check the `captured` text yourself before you confirm. Details in [known limitations](docs/known-limitations.md).
+- The `dap` probe now fails (exit 1, nothing recorded) when the evaluation fails, when the stop is not at any requested `--break`, or when the program exits without stopping, so a verdict cannot be recorded on those ([issue #2](https://github.com/rfcclub/hammerhead/issues/2)). The probe does not check that the observed value supports your prediction.
 - CONFIRMED is a judgment made by the operator. The tool does not compare the observation with the prediction.
 - The observation hash detects edits to a session file; it does not authenticate the evidence.
 - The CLI cannot stop file edits made before a CONFIRMED verdict.

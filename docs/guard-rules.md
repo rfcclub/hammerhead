@@ -36,4 +36,4 @@ The CLI also checks arguments before the guard runs. For example an empty `--pre
 - **It does not authenticate evidence.** An observation passed with `--observation` is whatever text you typed. The hash detects later edits to the file; it cannot show the text was real. Hash and verdict are rechecked again at `fix`, so editing `captured` after the verdict is caught.
 - **It does not sandbox probes.** Debugger expressions (`--evaluate`), repro commands and instrumentation are trusted operator input. A `dap` evaluation can run arbitrary code in the debugged program, and the repro command runs through `sh -c`.
 - **It does not validate the diff hash** passed to `fix`.
-- **It does not inspect what the `dap` probe actually observed.** See [known limitations](known-limitations.md) (issue #7).
+- **It does not inspect what the `dap` probe observed.** The probe itself refuses to record a failed evaluation, a stop away from the requested breakpoints, or a program that never stopped; whether the value supports the prediction is not checked. See [known limitations](known-limitations.md).

@@ -46,7 +46,11 @@ Errors print to stderr as `Error: <message>` and the exit code is 1. Messages be
 
 **The probe takes a long time and then fails.** Each `dap` call has a 60 second timeout. A program that waits for input, or a slow start, can hit it.
 
-**The observation says `terminated(exit 0): program exited before hitting a breakpoint`.** The breakpoint's line was never reached (wrong line, wrong branch, wrong script). The probe still recorded this as evidence and exited 0. Do not confirm on it. See [issue #7](https://github.com/rfcclub/hammerhead/issues/2).
+**`dap probe recorded no observation: program terminated (exit 0) before hitting a breakpoint`.** The breakpoint's line was never reached (wrong line, wrong branch, wrong script). The probe exits 1 and records nothing. Fix the breakpoint and probe again.
+
+**`dap probe recorded no observation: stopped at <file>:<line>, which differs from the requested breakpoint(s) ...`.** The debugger moved the breakpoint (for example the requested line does not exist or has no code). Request a line that has code, then probe again. Nothing was recorded.
+
+**`dap probe recorded no observation: stopped at <file>:<line> but eval "<expr>" failed`.** The program stopped at the right place but the expression could not be evaluated there (for example an undefined name). Nothing was recorded; use an expression that is valid at that line.
 
 **The observation says `... — eval "<expr>" failed` or stopped at a different line than `--break`.** Same issue. The probe recorded it anyway; do not confirm on it.
 

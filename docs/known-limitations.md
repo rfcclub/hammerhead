@@ -1,26 +1,14 @@
 # Known limitations
 
-These are stated plainly so you can decide how much to trust a session. They describe the beta as of version 0.5.0-beta.4.
+These are stated plainly so you can decide how much to trust a session. They describe the beta as of version 0.5.0-beta.5 plus the fix for issue #2.
 
-## Open issue
-
-### Issue #7: the `dap` probe can record a failed or misplaced stop as evidence
+## Fixed: the `dap` probe recorded failed or misplaced stops as evidence
 
 https://github.com/rfcclub/hammerhead/issues/2
 
-`probe --kind dap` can record an observation whose text has no observed value, and `verdict --result CONFIRMED` is then accepted on it, after which `fix` is authorized. The issue was reported for a breakpoint that the debugger moved to another line, with the evaluation failing there.
+Earlier betas recorded a stop whose evaluation failed, a stop at a line other than the one requested (for example a breakpoint the debugger moved), and a program that exited before any stop, all as observations with exit code 0. `verdict --result CONFIRMED` and `fix` were then accepted on them. Now `probe --kind dap` fails (exit 1, nothing recorded) in each of those cases, so `verdict` is refused until a real observation exists. See [DAP probes](dap-probes.md#what-gets-recorded).
 
-Reproduced here with `dap` v0.4.2 and debugpy 1.8.22. Each of these exits 0, and `verdict --result CONFIRMED` followed by `fix` was accepted on each one:
-
-| Situation | Recorded text |
-|---|---|
-| Breakpoint requested on a nonexistent line 99; the debugger stopped at line 2 | `stopped(breakpoint) at <path>/reloc.py:2: s = 80` (a value, but at a line you did not ask for) |
-| Evaluation of an undefined name at a real breakpoint | `stopped(breakpoint) at <path>/reloc.py:1 — eval "nosuchvar" failed` |
-| The breakpoint is in a function that never runs | `terminated(exit 0): program exited before hitting a breakpoint` |
-
-The issue text describes an unhit breakpoint as already failing the probe. In this version it does not: it is recorded as an observation and the probe exits 0.
-
-What to do until it is fixed: read the `captured` text printed by `probe` before you record CONFIRMED. If it contains `failed` or `terminated`, or the file and line are not what you asked for, do not confirm. An agent running the skill has no such check.
+What is still true: the probe checks that the stop is at a requested breakpoint and that the evaluation returned a value. It does not check that the value supports your prediction. That is still your judgment.
 
 ## Design limits
 

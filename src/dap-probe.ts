@@ -1,3 +1,5 @@
+import { realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { sha256String } from './sha256.js'
 import type { DapProbeSpec, DebugObservation } from './types.js'
 import { defaultDapCliRunner, runDapCli, type DapCliRunner } from './dap-cli.js'
@@ -14,6 +16,42 @@ function buildDebugArgs(spec: DapProbeSpec): string[] {
   if (spec.backend) args.push('--backend', spec.backend)
   if (spec.stopOnEntry) args.push('--stop-on-entry')
   return args
+}
+
+function normalizePath(p: string): string {
+  const slashed = p.replace(/\\/g, '/')
+  return slashed.replace(/^(\.\/)+/, '')
+}
+
+function canonical(p: string): string {
+  const abs = resolve(p)
+  try {
+    return realpathSync(abs)
+  } catch {
+    return abs
+  }
+}
+
+/** True when the path the debugger reports and the path the probe asked for name the same file. */
+function sameFile(stopped: string, requested: string): boolean {
+  const a = normalizePath(stopped)
+  const b = normalizePath(requested)
+  if (a === b) return true
+  if (canonical(a) === canonical(b)) return true
+  // One side may be relative to a working directory the other side does not know about; accept
+  // only a match on whole trailing path segments, never a partial file name.
+  const [longer, shorter] = a.length >= b.length ? [a, b] : [b, a]
+  if (shorter.startsWith('../') || shorter.startsWith('/')) return false
+  return longer.endsWith('/' + shorter)
+}
+
+function stoppedAtRequestedBreakpoint(
+  spec: DapProbeSpec,
+  stop: { reason: string; location: { file: string; line: number } },
+): boolean {
+  // A stop-on-entry stop is a location the caller explicitly asked for.
+  if (spec.stopOnEntry && stop.reason === 'entry') return true
+  return spec.breakpoints.some(bp => bp.line === stop.location.line && sameFile(stop.location.file, bp.path))
 }
 
 /**
@@ -37,21 +75,34 @@ export async function runDapProbe(
       throw new Error(`dap debug failed: ${debugResult.message}`)
     }
     if (debugResult.kind === 'terminated') {
-      const captured = `terminated(exit ${debugResult.exitCode ?? 'unknown'}): program exited before hitting a breakpoint`
-      return { captured, observation_sha256: sha256String(captured) }
+      // No stop means nothing was observed: fail like an error rather than record a non-observation.
+      throw new Error(
+        `dap probe recorded no observation: program terminated (exit ${debugResult.exitCode ?? 'unknown'}) before hitting a breakpoint`,
+      )
     }
     if (debugResult.kind !== 'stopped') {
       throw new Error(`dap debug returned unexpected result kind: ${debugResult.kind}`)
     }
 
-    const evalResult = await runDapCli(run, ['eval', spec.evaluate])
-    if (evalResult.kind !== 'ok' || typeof evalResult.data !== 'object' || evalResult.data === null) {
-      const captured = `stopped(${debugResult.data.reason}) at ${debugResult.data.location.file}:${debugResult.data.location.line} — eval "${spec.evaluate}" failed`
-      return { captured, observation_sha256: sha256String(captured) }
+    const stop = debugResult.data
+    const where = `${stop.location.file}:${stop.location.line}`
+    if (!stoppedAtRequestedBreakpoint(spec, stop)) {
+      const asked = spec.breakpoints.map(bp => `${bp.path}:${bp.line}`).join(', ') || '(none)'
+      throw new Error(
+        `dap probe recorded no observation: stopped at ${where}, which differs from the requested breakpoint(s) ${asked} (the debugger may have relocated the breakpoint)`,
+      )
     }
 
-    const evalData = evalResult.data as { eval_result?: { value: string; type: string } }
-    const value = evalData.eval_result?.value ?? '<no value>'
+    const evalResult = await runDapCli(run, ['eval', spec.evaluate])
+    const evalData =
+      evalResult.kind === 'ok' && typeof evalResult.data === 'object' && evalResult.data !== null
+        ? (evalResult.data as { eval_result?: { value?: unknown; type?: string } })
+        : undefined
+    const rawValue = evalData?.eval_result?.value
+    if (typeof rawValue !== 'string') {
+      throw new Error(`dap probe recorded no observation: stopped at ${where} but eval "${spec.evaluate}" failed`)
+    }
+    const value = rawValue
     const captured = `stopped(${debugResult.data.reason}) at ${debugResult.data.location.file}:${debugResult.data.location.line}: ${spec.evaluate} = ${value}`
     return { captured, observation_sha256: sha256String(captured) }
   } finally {

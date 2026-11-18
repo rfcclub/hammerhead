@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync, spawnSync } from 'child_process'
-import { mkdirSync, rmSync, existsSync } from 'fs'
+import { mkdirSync, rmSync, existsSync, writeFileSync, chmodSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { fileURLToPath } from 'url'
@@ -106,6 +106,52 @@ describe('hammerhead-debug CLI', () => {
     const { session_id: sessionId } = JSON.parse(run(['open', '--symptom', 'x', '--repro', 'true']).stdout) as { session_id: string }
     const status = JSON.parse(run(['status', sessionId]).stdout) as { session: { serves_task: unknown } }
     expect(status.session.serves_task).toBeNull()
+  })
+
+  describe('dap probe with a fake dap binary', () => {
+    // The fake prints a stop at checkout.py:8 for `debug` and fails `eval`, like the reported case.
+    function fakeDap(evalOutput: string): string {
+      const bin = join(cwd, 'fake-dap.sh')
+      writeFileSync(
+        bin,
+        [
+          '#!/bin/sh',
+          'case "$1" in',
+          '  debug) echo \'{"reason":"breakpoint","location":{"file":"/w/checkout.py","line":8,"function":"f"}}\' ;;',
+          `  eval) echo '${evalOutput}' ;;`,
+          '  *) echo OK ;;',
+          'esac',
+          '',
+        ].join('\n'),
+      )
+      chmodSync(bin, 0o755)
+      return bin
+    }
+
+    function openCycle(): string {
+      const { session_id: id } = JSON.parse(run(['open', '--symptom', 'x', '--repro', 'true']).stdout) as { session_id: string }
+      run(['hypothesis', id, 'h', '--predict', 'p'])
+      return id
+    }
+
+    it('a failed eval at a relocated breakpoint exits nonzero, records nothing, and CONFIRMED is refused', () => {
+      const id = openCycle()
+      const probe = run(['probe', id, '--kind', 'dap', '--script', 'checkout.py', '--break', 'checkout.py:99', '--evaluate', 's', '--dap-bin', fakeDap('Error: boom')])
+      expect(probe.status).toBe(1)
+      const session = JSON.parse(run(['status', id]).stdout) as { session: { cycles: Array<{ observation?: unknown }> } }
+      expect(session.session.cycles[0].observation).toBeUndefined()
+      expect(run(['verdict', id, '--result', 'CONFIRMED']).status).toBe(1)
+      expect(run(['fix', id, '--diff-sha256', 'abc']).status).toBe(1)
+    })
+
+    it('a stop at the requested line with a real value is recorded and can be confirmed', () => {
+      const id = openCycle()
+      const bin = fakeDap('{"eval_result":{"value":"80","type":"int"}}')
+      const probe = run(['probe', id, '--kind', 'dap', '--script', 'checkout.py', '--break', 'checkout.py:8', '--evaluate', 's', '--dap-bin', bin])
+      expect(probe.status).toBe(0)
+      expect((JSON.parse(probe.stdout) as { captured: string }).captured).toBe('stopped(breakpoint) at /w/checkout.py:8: s = 80')
+      expect(run(['verdict', id, '--result', 'CONFIRMED']).status).toBe(0)
+    })
   })
 
   it('unknown command prints usage and exits non-zero', () => {
